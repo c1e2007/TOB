@@ -2,24 +2,23 @@ package org.rsmod.content.raids.tob.room.verzik
 
 import org.rsmod.api.bossbar.plugin.BossHpBarScript
 import org.rsmod.api.bosses.runtime.BossDeps
-import org.rsmod.api.instances.InstanceSession
 import org.rsmod.content.raids.tob.raid.TobFight
 import org.rsmod.content.raids.tob.raid.TobRoom
 import org.rsmod.content.raids.tob.raid.TobRoomCleared
+import org.rsmod.content.raids.tob.resolve
 import org.rsmod.events.EventBus
 import org.rsmod.game.entity.Npc
 import org.rsmod.game.entity.Player
 import org.rsmod.map.CoordGrid
 
 internal class VerzikFight(
-    override val session: InstanceSession,
     val origin: CoordGrid,
     private val deps: BossDeps,
     private val hpBar: BossHpBarScript,
     private val events: EventBus,
     val hardMode: Boolean = false,
 ) : TobFight {
-    val boss = VerzikBoss(origin, deps, hardMode)
+    val boss = VerzikBoss(resolve(origin), deps, hardMode)
 
     private var started = false
     private var startedAt = 0
@@ -31,9 +30,9 @@ internal class VerzikFight(
     override val finished: Boolean
         get() = endedAt != null
 
-    fun contains(tile: CoordGrid): Boolean = VerzikArena.inRoom(origin, tile)
+    fun contains(tile: CoordGrid): Boolean = VerzikArena.inRoom(resolve(origin), tile)
 
-    fun fighters(): List<Player> = VerzikArena.players(origin, deps.playerList)
+    fun fighters(): List<Player> = VerzikArena.players(resolve(origin), deps.playerList)
 
     fun open(): List<Npc> {
         val verzikNpc = boss.spawn()
@@ -60,7 +59,7 @@ internal class VerzikFight(
     private fun complete() {
         if (finished) return
         endedAt = deps.mapClock.cycle
-        events.publish(TobRoomCleared(session.id, TobRoom.Verzik))
+        events.publish(TobRoomCleared(TobRoom.Verzik))
     }
 
     fun dispose() {

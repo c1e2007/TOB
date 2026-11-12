@@ -1,14 +1,12 @@
 package org.rsmod.content.raids.tob.raid
 
 import jakarta.inject.Singleton
-import org.rsmod.api.instances.InstanceId
 import org.rsmod.content.raids.party.RaidParty
 import org.rsmod.content.raids.tob.party.TobPartySettings
 import org.rsmod.game.entity.Player
 
 class TobRaid(val party: RaidParty<TobPartySettings>) {
     var room: TobRoom = TobRoom.Maiden
-    var roomId: InstanceId? = null
     var deaths = 0
     val dead = HashSet<Player>()
     val cleared = HashSet<TobRoom>()
@@ -37,6 +35,8 @@ class TobRaids {
     fun end(party: RaidParty<TobPartySettings>) {
         raids.remove(party)?.let(::release)
     }
+
+    fun all(): Collection<TobRaid> = raids.values
 
     private fun release(raid: TobRaid) {
         raid.dead.clear()

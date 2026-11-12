@@ -2,8 +2,6 @@ package org.rsmod.content.raids.tob
 
 import jakarta.inject.Inject
 import org.rsmod.annotations.InternalApi
-import org.rsmod.api.instances.InstanceManager
-import org.rsmod.api.instances.InstanceSession
 import org.rsmod.api.player.hook.TeleportType
 import org.rsmod.api.player.output.mes
 import org.rsmod.api.player.protect.ProtectedAccessLauncher
@@ -18,12 +16,12 @@ import org.rsmod.content.raids.tob.room.bloat.BloatEncounter
 import org.rsmod.content.raids.tob.room.maiden.MaidenEncounter
 import org.rsmod.content.raids.tob.room.nylocas.NylocasEncounter
 import org.rsmod.content.raids.tob.room.reward.RewardEncounter
+import org.rsmod.content.raids.tob.room.shadowrealm.ShadowRealmEncounter
 import org.rsmod.content.raids.tob.room.sotetseg.SotetsegEncounter
 import org.rsmod.content.raids.tob.room.verzik.VerzikEncounter
 import org.rsmod.content.raids.tob.room.xarpus.XarpusEncounter
 import org.rsmod.game.MapClock
 import org.rsmod.game.cheat.Cheat
-import org.rsmod.game.entity.Player
 import org.rsmod.map.CoordGrid
 import org.rsmod.plugin.scripts.PluginScript
 import org.rsmod.plugin.scripts.ScriptContext
@@ -40,10 +38,10 @@ constructor(
     private val bloat: BloatEncounter,
     private val nylocas: NylocasEncounter,
     private val sotetseg: SotetsegEncounter,
+    private val shadowRealm: ShadowRealmEncounter,
     private val xarpus: XarpusEncounter,
     private val verzik: VerzikEncounter,
     private val reward: RewardEncounter,
-    private val manager: InstanceManager,
     private val clock: MapClock,
 ) : PluginScript() {
 
@@ -72,6 +70,10 @@ constructor(
             desc = "Enter Sotetseg room"
             cheat { enterSotetseg() }
         }
+        onCommand("tobshadow") {
+            desc = "Enter Shadow Realm"
+            cheat { enterShadow() }
+        }
         onCommand("tobxarpus") {
             desc = "Enter Xarpus room"
             cheat { enterXarpus() }
@@ -85,20 +87,13 @@ constructor(
             cheat { enterReward() }
         }
         onCommand("tobleave") {
-            desc = "Leave ToB instance"
+            desc = "Leave ToB"
             cheat { leave() }
         }
-    }
-
-    private fun cleanPrevious(player: Player) {
-        val existing = manager.sessionForPlayer(player)
-            ?: player.uuid?.let { manager.sessionForOwner(it) }
-            ?: manager.sessionForMemberName(player.displayName)
-        if (existing != null) {
-            manager.leave(player, existing, clock.cycle)
+        onCommand("tobreset") {
+            desc = "Reset the active ToB room (respawn boss, clear hazards)"
+            cheat { resetRoom() }
         }
-        manager.cancelPendingEntry(player, clock.cycle)
-        player.uuid?.let { manager.sessionForOwner(it) }
     }
 
     private fun Cheat.getOrCreateParty(): RaidParty<TobPartySettings>? {
@@ -110,39 +105,32 @@ constructor(
     }
 
     private fun Cheat.teleToLobby() {
-        cleanPrevious(player)
         launcher.launchLenient(player) {
-            telejump(LOBBY_SPAWN, TeleportType.Exempt)
+            telejump(resolve(LOBBY_SPAWN), TeleportType.Exempt)
             mes("Teleported to Theatre of Blood lobby.")
         }
     }
 
     private fun Cheat.leave() {
-        cleanPrevious(player)
         val party = parties.partyOf(player)
         if (party != null) {
             lobby.endRaid(party)
         }
         launcher.launchLenient(player) {
-            telejump(LOBBY_SPAWN, TeleportType.Exempt)
+            telejump(resolve(LOBBY_SPAWN), TeleportType.Exempt)
             mes("You leave the Theatre of Blood.")
         }
     }
 
     private fun Cheat.startMaiden() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = maiden.open(player, party.settings.hardMode)) {
                 is MaidenEncounter.Opened.Failed -> mes(opened.reason)
                 is MaidenEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
                     val raid = raids.start(party)
-                    raid.roomId = session.id
                     raid.room = TobRoom.Maiden
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Maiden.arrival), TeleportType.Exempt)
                     mes("Entered Maiden encounter.")
                 }
             }
@@ -150,19 +138,14 @@ constructor(
     }
 
     private fun Cheat.enterBloat() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = bloat.open(player, party.settings.hardMode)) {
                 is BloatEncounter.Opened.Failed -> mes(opened.reason)
                 is BloatEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Bloat
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Bloat.arrival), TeleportType.Exempt)
                     mes("Entered Bloat encounter.")
                 }
             }
@@ -170,19 +153,14 @@ constructor(
     }
 
     private fun Cheat.enterNylo() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = nylocas.open(player, party.settings.hardMode)) {
                 is NylocasEncounter.Opened.Failed -> mes(opened.reason)
                 is NylocasEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Nylocas
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Nylocas.arrival), TeleportType.Exempt)
                     mes("Entered Nylocas encounter.")
                 }
             }
@@ -190,39 +168,44 @@ constructor(
     }
 
     private fun Cheat.enterSotetseg() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = sotetseg.open(player, party.settings.hardMode)) {
                 is SotetsegEncounter.Opened.Failed -> mes(opened.reason)
                 is SotetsegEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Sotetseg
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Sotetseg.arrival), TeleportType.Exempt)
                     mes("Entered Sotetseg encounter.")
                 }
             }
         }
     }
 
+    private fun Cheat.enterShadow() {
+        val party = getOrCreateParty() ?: return
+        launcher.launch(player, busyText = "Please close your dialogue first.") {
+            when (val opened = shadowRealm.open(player, party.settings.hardMode)) {
+                is ShadowRealmEncounter.Opened.Failed -> mes(opened.reason)
+                is ShadowRealmEncounter.Opened.Room -> {
+                    val raid = raids.of(party) ?: raids.start(party)
+                    raid.room = TobRoom.ShadowRealm
+                    telejump(resolve(TobRoom.ShadowRealm.arrival), TeleportType.Exempt)
+                    mes("Entered Shadow Realm.")
+                }
+            }
+        }
+    }
+
     private fun Cheat.enterXarpus() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = xarpus.open(player, party.settings.hardMode)) {
                 is XarpusEncounter.Opened.Failed -> mes(opened.reason)
                 is XarpusEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Xarpus
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Xarpus.arrival), TeleportType.Exempt)
                     mes("Entered Xarpus encounter.")
                 }
             }
@@ -230,19 +213,14 @@ constructor(
     }
 
     private fun Cheat.enterVerzik() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = verzik.open(player, party.settings.hardMode)) {
                 is VerzikEncounter.Opened.Failed -> mes(opened.reason)
                 is VerzikEncounter.Opened.Room -> {
-                    val session = opened.fight.session
-                    lobby.bindRaid(session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Verzik
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, session, clock.cycle)
+                    telejump(resolve(TobRoom.Verzik.arrival), TeleportType.Exempt)
                     mes("Entered Verzik encounter.")
                 }
             }
@@ -250,21 +228,68 @@ constructor(
     }
 
     private fun Cheat.enterReward() {
-        cleanPrevious(player)
         val party = getOrCreateParty() ?: return
         launcher.launch(player, busyText = "Please close your dialogue first.") {
             when (val opened = reward.open(player, party.settings.hardMode)) {
                 is RewardEncounter.Opened.Failed -> mes(opened.reason)
                 is RewardEncounter.Opened.Room -> {
-                    lobby.bindRaid(opened.session.id, party)
-                    val raid = raids.start(party)
-                    raid.roomId = opened.session.id
+                    val raid = raids.of(party) ?: raids.start(party)
                     raid.room = TobRoom.Reward
-                    telejump(opened.enter, TeleportType.Exempt)
-                    manager.finalizeEntry(player, opened.session, clock.cycle)
+                    telejump(resolve(TobRoom.Reward.arrival), TeleportType.Exempt)
                     mes("Entered Reward Vault.")
                 }
             }
+        }
+    }
+
+    private fun Cheat.resetRoom() {
+        val raid = raids.of(player)
+        val room = raid?.room ?: TobRoom.entries.firstOrNull { r ->
+            player.coords.level == r.arrival.level &&
+                player.coords.x in (r.arrival.x - 64)..(r.arrival.x + 64) &&
+                player.coords.z in (r.arrival.z - 64)..(r.arrival.z + 64)
+        } ?: TobRoom.Maiden
+
+        raid?.cleared?.remove(room)
+        val hardMode = raid?.party?.settings?.hardMode ?: false
+
+        when (room) {
+            TobRoom.Maiden -> {
+                maiden.close()
+                maiden.open(player, hardMode)
+            }
+            TobRoom.Bloat -> {
+                bloat.close()
+                bloat.open(player, hardMode)
+            }
+            TobRoom.Nylocas -> {
+                nylocas.close()
+                nylocas.open(player, hardMode)
+            }
+            TobRoom.Sotetseg -> {
+                sotetseg.close()
+                sotetseg.open(player, hardMode)
+            }
+            TobRoom.ShadowRealm -> {
+                shadowRealm.close()
+                shadowRealm.open(player, hardMode)
+            }
+            TobRoom.Xarpus -> {
+                xarpus.close()
+                xarpus.open(player, hardMode)
+            }
+            TobRoom.Verzik -> {
+                verzik.close()
+                verzik.open(player, hardMode)
+            }
+            TobRoom.Reward -> {
+                reward.close()
+                reward.open(player, hardMode)
+            }
+        }
+
+        launcher.launchLenient(player) {
+            mes("Reset ${room.roomName}: NPCs respawned and hazards cleared.")
         }
     }
 
